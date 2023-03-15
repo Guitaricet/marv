@@ -26,7 +26,7 @@ BOT_NAME = "Marv"
 ALLOWED_CHAT_ID = -1001304517416
 SYSTEM_MESSAGE_EN = "You are an AI assistant Marv that make detailed summarizes of russian conversations. For longer requests you will have longer summaries. Make sure to mention all of the jokes in detail. Add some jokes to the summary in the style of Marvin from the Hitchhiker's guide to the galaxy."
 SYSTEM_MESSAGE_RU = "Ты - ИИ-помощник Marv, который суммирует разговоры и пишет саммари на русском языке. Обязательно упомяни все шутки подробно. Иногда (очень редко) добавляй в саммари шутки в стиле Марвина из Hitchhiker's guide to the galaxy."
-SYSTEM_MESSAGE_RESPOND_EN = "You are an AI fridnd Marv that responds to messages. You read the history and respond based on it. Respond them like a human would do. Add some Marvin (Hitchhiker's guide to the galaxy) jokes. You are allowed to be rude and make friendly banter."
+SYSTEM_MESSAGE_RESPOND_EN = "You are an AI fridnd Marv that responds to messages. You read the history and respond based on it. First, try to understand if they asked you directly of just mentioned you, then send a message that fits the context most. Reply like a human would do."
 
 MESSAGE_STORAGE_PATH = "state/message_storage.jsonl"
 HELP_HISTORY_PATH = "state/help_history.txt"
@@ -64,21 +64,20 @@ class MentionFilter(filters.MessageFilter):
 
         return any(n.lower() in message.text.lower() for n in self.usernames)
 
-class ReplyToFilter(filters.MessageFilter):
-    def __init__(self, names):
-        super().__init__()
-        if isinstance(names, str):
-            names = [names]
-        self.names = names
 
-    async def filter_async(self, message: Message):
+class ReplyToFilter(filters.MessageFilter):
+    def __init__(self, username):
+        super().__init__()
+        self.username = username
+
+    def filter(self, message: Message):
         logger.info(f"Checking if message is a reply to the bot. Message: {message}")
         if not message.reply_to_message:
             return False
 
         logger.info(f"Checking if message is a reply to the bot. User: {message.reply_to_message.from_user}")
         # Check if the message is a reply to the bot
-        return any(message.reply_to_message.from_user.username.lower() == n.lower() for n in self.names)
+        return message.reply_to_message.from_user.username == self.username
 
 
 async def save_message_to_storage(message: dict):
@@ -138,12 +137,14 @@ async def handle_message_to_bot(update: Update, context: CallbackContext):
             {"role": "system", "content": SYSTEM_MESSAGE_RESPOND_EN},
             {"role": "user", "content": "the next message is the full context of the conversation, use it fully to reply"},
             {"role": "user", "content": full_history},
-            {"role": "user", "content": "now, if the history is relevant, use it to answer this quesiton. If it's not just make something up"},
+            {"role": "user", "content": "now, if the history is relevant, use it to answer this quesiton. If it's not just make something up. Feel free to joke and banter like Marvin from Hitchhiker's guide to the galaxy"},
             {"role": "user", "content": f"{user}: {message}"},
         ]
     )
 
     response = openai_chat.choices[0].message["content"].strip()
+    response.strip("Marv: ")
+    response.strip("marv: ")
     message = {"timestamp": time.time(), "user": BOT_NAME, "user_id": -42, "message": response}
 
     message_storage.append(message)
@@ -274,7 +275,7 @@ if __name__ == "__main__":
     non_command_filter = NonCommandMessageFilter()
     allowed_chat_filter = filters.Chat(chat_id=ALLOWED_CHAT_ID)
     mention_filter = MentionFilter(usernames=[BOT_NAME, "марв", "cycloeblan_bot"])
-    reply_to_bot_filter = ReplyToFilter(names=[BOT_NAME, "марв", "cycloeblan_bot"])
+    reply_to_bot_filter = ReplyToFilter(username="cycloeblan_bot")
 
     application.add_handler(MessageHandler(mention_filter & allowed_chat_filter, handle_mention))
     application.add_handler(MessageHandler(reply_to_bot_filter & allowed_chat_filter, handle_reply))
