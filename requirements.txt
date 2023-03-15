@@ -1,5 +1,4 @@
 openai
 python-telegram-bot
 aiofiles
-jsonlines
 loguru

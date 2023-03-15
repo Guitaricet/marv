@@ -5,7 +5,6 @@ import logging
 
 import openai
 import aiofiles
-import jsonlines
 from loguru import logger
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackContext, filters
@@ -21,7 +20,7 @@ logger = logging.getLogger(__name__)
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
 ALLOWED_CHAT_ID = -1001304517416
-SYSTEM_MESSAGE_EN = "You are an AI assistant that make detailed summarizes of russian conversations between 4 friends: Anna, Vlad, Vika, and Lena in english. For longer requests you will have longer summaries. Make sure to mention all of the jokes in detail. Add some jokes to the summary in the style of Marvin from the Hitchhiker's guide to the galaxy."
+SYSTEM_MESSAGE_EN = "You are an AI assistant that make detailed summarizes of russian conversations. For longer requests you will have longer summaries. Make sure to mention all of the jokes in detail. Add some jokes to the summary in the style of Marvin from the Hitchhiker's guide to the galaxy."
 SYSTEM_MESSAGE_RU = "Ты - ИИ-помощник, который суммирует разговоры и пишет саммари на русском языке. Обязательно упомяни все шутки подробно. Иногда (очень редко) добавляй в саммари шутки в стиле Марвина из Hitchhiker's guide to the galaxy."
 
 MESSAGE_STORAGE_PATH = "state/message_storage.jsonl"
@@ -47,9 +46,12 @@ async def save_message_to_storage(message: dict):
 message_storage = []
 
 if os.path.exists(MESSAGE_STORAGE_PATH):
-    with jsonlines.open(MESSAGE_STORAGE_PATH, mode="r") as f:
-        for message in f:
-            message_storage.append(message)
+    with open(MESSAGE_STORAGE_PATH, mode="r") as f:
+        for line in f:
+            logger.info(f"<{line}>")
+            if len(line) < 2:  # <2 because just \n doesn't work on GCP for some reason
+                continue
+            message_storage.append(json.loads(line))
 
 async def handle_message(update: Update, context):
     msg = update.message.text
