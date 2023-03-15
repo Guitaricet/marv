@@ -6,7 +6,7 @@ import logging
 import openai
 import aiofiles
 from loguru import logger
-from telegram import Update
+from telegram import Update, Message
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackContext, filters
 
 import bot_strings
@@ -19,9 +19,11 @@ logger = logging.getLogger(__name__)
 # Initialize OpenAI API
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
+BOT_NAME = "cycloeblan_bot"
 ALLOWED_CHAT_ID = -1001304517416
 SYSTEM_MESSAGE_EN = "You are an AI assistant that make detailed summarizes of russian conversations. For longer requests you will have longer summaries. Make sure to mention all of the jokes in detail. Add some jokes to the summary in the style of Marvin from the Hitchhiker's guide to the galaxy."
 SYSTEM_MESSAGE_RU = "Ты - ИИ-помощник, который суммирует разговоры и пишет саммари на русском языке. Обязательно упомяни все шутки подробно. Иногда (очень редко) добавляй в саммари шутки в стиле Марвина из Hitchhiker's guide to the galaxy."
+SYSTEM_MESSAGE_RESPOND_EN = "You are an AI assistant that usually makes detailed summarizes of russian conversations, but this time someone asked you directly. Respond them. Add some Marvin jokes"
 
 MESSAGE_STORAGE_PATH = "state/message_storage.jsonl"
 HELP_HISTORY_PATH = "state/help_history.txt"
@@ -35,6 +37,23 @@ lang_to_system_message = {
 class NonCommandMessageFilter(filters.MessageFilter):
     def filter(self, message: filters.Message):
         return not any(entity.type == filters.MessageEntity.BOT_COMMAND for entity in message.entities)
+
+class MentionFilter(filters.BaseFilter):
+    def __init__(self, bot_username: str):
+        self.bot_username = bot_username
+
+    def filter(self, message):
+        return self.bot_username in message.text
+
+class ReplyToBotFilter(filters.BaseFilter):
+    async def filter_async(self, message: Message):
+        logger.info(f"Checking if message is a reply to the bot. Message: {message}")
+        if not message.reply_to_message:
+            return False
+
+        logger.info(f"Checking if message is a reply to the bot. User: {message.reply_to_message.from_user}")
+        # Check if the message is a reply to the bot
+        return message.reply_to_message.from_user.username == BOT_NAME
 
 
 async def save_message_to_storage(message: dict):
@@ -67,6 +86,36 @@ async def handle_message(update: Update, context):
     message = {"timestamp": timestamp, "user": user, "user_id": user_id, "message": msg}
     message_storage.append(message)
     await save_message_to_storage(message)
+
+
+async def handle_reply(update: Update, context: CallbackContext):
+    await handle_message_to_bot(update, context)
+
+
+async def handle_mention(update: Update, context: CallbackContext):
+    await handle_message_to_bot(update, context)
+
+
+async def handle_message_to_bot(update: Update, context: CallbackContext):
+    user = update.message.from_user.first_name
+    message = update.message.text
+    full_history = "\n".join([f"{msg['user']}: {msg['message']}" for msg in message_storage])
+
+    openai_chat = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": SYSTEM_MESSAGE_RESPOND_EN},
+            {"role": "user", "content": full_history},
+            {"role": "user", "content": f"{user}: {message}"},
+        ]
+    )
+
+    response = openai_chat.choices[0].message["content"].strip()
+    message = {"timestamp": time.time(), "user": BOT_NAME, "user_id": -42, "message": response}
+    message_storage.append(message)
+
+    await save_message_to_storage(message)
+    await update.message.reply_text(response)
 
 
 def get_filtered_messages(user_id, hours=None):
@@ -184,11 +233,15 @@ if __name__ == "__main__":
 
     non_command_filter = NonCommandMessageFilter()
     allowed_chat_filter = filters.Chat(chat_id=ALLOWED_CHAT_ID)
+    mention_filter = MentionFilter(bot_username=BOT_NAME)
+    reply_to_bot_filter = ReplyToBotFilter(bot_username=BOT_NAME)
 
     application.add_handler(MessageHandler(non_command_filter & allowed_chat_filter, handle_message))
     application.add_handler(CommandHandler("summarize", summarize, filters=allowed_chat_filter))
     application.add_handler(CommandHandler("help", help_command, filters=allowed_chat_filter))
     application.add_handler(CommandHandler("get_chat_id", get_chat_id, filters=allowed_chat_filter))
+    application.add_handler(MessageHandler(mention_filter, handle_mention))
+    application.add_handler(MessageHandler(reply_to_bot_filter, handle_reply))
     application.add_handler(MessageHandler(filters.ALL, debug_handler))
 
     application.run_polling(1.0)
