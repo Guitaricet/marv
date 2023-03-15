@@ -5,6 +5,7 @@ import logging
 
 import openai
 import aiofiles
+import tiktoken
 from loguru import logger
 from telegram import Update, Message
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackContext, filters
@@ -19,11 +20,13 @@ logger = logging.getLogger(__name__)
 # Initialize OpenAI API
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
-BOT_NAME = "cycloeblan_bot"
+OPENAI_MODEL_NAME = "gpt-3.5-turbo"
+MAX_CONTEXT_LENGTH = 4096 - 256
+BOT_NAME = "Marv"
 ALLOWED_CHAT_ID = -1001304517416
-SYSTEM_MESSAGE_EN = "You are an AI assistant that make detailed summarizes of russian conversations. For longer requests you will have longer summaries. Make sure to mention all of the jokes in detail. Add some jokes to the summary in the style of Marvin from the Hitchhiker's guide to the galaxy."
-SYSTEM_MESSAGE_RU = "Ты - ИИ-помощник, который суммирует разговоры и пишет саммари на русском языке. Обязательно упомяни все шутки подробно. Иногда (очень редко) добавляй в саммари шутки в стиле Марвина из Hitchhiker's guide to the galaxy."
-SYSTEM_MESSAGE_RESPOND_EN = "You are an AI fridnd that responds to messages. You read the history and respond based on it. Respond them like a human would do. Add some Marvin (Hitchhiker's guide to the galaxy) jokes"
+SYSTEM_MESSAGE_EN = "You are an AI assistant Marv that make detailed summarizes of russian conversations. For longer requests you will have longer summaries. Make sure to mention all of the jokes in detail. Add some jokes to the summary in the style of Marvin from the Hitchhiker's guide to the galaxy."
+SYSTEM_MESSAGE_RU = "Ты - ИИ-помощник Marv, который суммирует разговоры и пишет саммари на русском языке. Обязательно упомяни все шутки подробно. Иногда (очень редко) добавляй в саммари шутки в стиле Марвина из Hitchhiker's guide to the galaxy."
+SYSTEM_MESSAGE_RESPOND_EN = "You are an AI fridnd Marv that responds to messages. You read the history and respond based on it. Respond them like a human would do. Add some Marvin (Hitchhiker's guide to the galaxy) jokes. You are allowed to be rude and make friendly banter."
 
 MESSAGE_STORAGE_PATH = "state/message_storage.jsonl"
 HELP_HISTORY_PATH = "state/help_history.txt"
@@ -33,26 +36,40 @@ lang_to_system_message = {
     "ru": SYSTEM_MESSAGE_RU,
 }
 
+tokenizer = tiktoken.encoding_for_model(OPENAI_MODEL_NAME)
+
+def truncate(text, max_tokens):
+    encoded_text = tokenizer.encode(text)
+    if len(encoded_text) < max_tokens:
+        return text
+
+    encoded_text = encoded_text[-max_tokens:]
+    return tokenizer.decode(encoded_text)
+
 
 class NonCommandMessageFilter(filters.MessageFilter):
     def filter(self, message: filters.Message):
         return not any(entity.type == filters.MessageEntity.BOT_COMMAND for entity in message.entities)
 
 class MentionFilter(filters.MessageFilter):
-    def __init__(self, bot_username: str):
+    def __init__(self, usernames: str):
         super().__init__()
-        self.bot_username = bot_username
+        if isinstance(usernames, str):
+            usernames = [usernames]
+        self.usernames = usernames
 
     def filter(self, message):
         if message.text is None:
             return False
 
-        return self.bot_username in message.text
+        return any(n.lower() in message.text.lower() for n in self.usernames)
 
 class ReplyToFilter(filters.MessageFilter):
-    def __init__(self, name):
+    def __init__(self, names):
         super().__init__()
-        self.name = name
+        if isinstance(names, str):
+            names = [names]
+        self.names = names
 
     async def filter_async(self, message: Message):
         logger.info(f"Checking if message is a reply to the bot. Message: {message}")
@@ -61,7 +78,7 @@ class ReplyToFilter(filters.MessageFilter):
 
         logger.info(f"Checking if message is a reply to the bot. User: {message.reply_to_message.from_user}")
         # Check if the message is a reply to the bot
-        return message.reply_to_message.from_user.username == self.name
+        return any(message.reply_to_message.from_user.username.lower() == n.lower() for n in self.names)
 
 
 async def save_message_to_storage(message: dict):
@@ -111,11 +128,12 @@ async def handle_message_to_bot(update: Update, context: CallbackContext):
     user = update.message.from_user.first_name
     message = update.message.text
     full_history = "\n".join([f"{msg['user']}: {msg['message']}" for msg in message_storage[-100:]])
+    full_history = truncate(full_history, MAX_CONTEXT_LENGTH)
 
     logger.info(f"Replying with the history: {full_history}")
 
     openai_chat = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
+        model=OPENAI_MODEL_NAME,
         messages=[
             {"role": "system", "content": SYSTEM_MESSAGE_RESPOND_EN},
             {"role": "user", "content": "the next message is the full context of the conversation, use it fully to reply"},
@@ -169,12 +187,13 @@ def get_filtered_messages(user_id, hours=None):
 def summarize_messages(messages, lang="en"):
     messages_to_summarize = [f"{msg['user']}: {msg['message']}" for msg in messages]
     conversation = " ".join(messages_to_summarize)
+    conversation = truncate(conversation, MAX_CONTEXT_LENGTH)
 
     messages = [
         {"role": "system", "content": lang_to_system_message[lang]},
         {"role": "user", "content": conversation},
     ]
-    print(messages)
+
     openai_chat = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=messages,
@@ -254,8 +273,8 @@ if __name__ == "__main__":
 
     non_command_filter = NonCommandMessageFilter()
     allowed_chat_filter = filters.Chat(chat_id=ALLOWED_CHAT_ID)
-    mention_filter = MentionFilter(bot_username=BOT_NAME)
-    reply_to_bot_filter = ReplyToFilter(name=BOT_NAME)
+    mention_filter = MentionFilter(usernames=[BOT_NAME, "марв", "cycloeblan_bot"])
+    reply_to_bot_filter = ReplyToFilter(names=[BOT_NAME, "марв", "cycloeblan_bot"])
 
     application.add_handler(MessageHandler(mention_filter & allowed_chat_filter, handle_mention))
     application.add_handler(MessageHandler(reply_to_bot_filter & allowed_chat_filter, handle_reply))
