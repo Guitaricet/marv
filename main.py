@@ -24,6 +24,9 @@ ALLOWED_CHAT_ID = -1001304517416
 SYSTEM_MESSAGE_EN = "You are an AI assistant that make detailed summarizes of russian conversations between 4 friends: Anna, Vlad, Vika, and Lena in english. For longer requests you will have longer summaries. Make sure to mention all of the jokes in detail. Add some jokes to the summary in the style of Marvin from the Hitchhiker's guide to the galaxy."
 SYSTEM_MESSAGE_RU = "Ты - ИИ-помощник, который суммирует разговоры и пишет саммари на русском языке. Обязательно упомяни все шутки подробно. Иногда (очень редко) добавляй в саммари шутки в стиле Марвина из Hitchhiker's guide to the galaxy."
 
+MESSAGE_STORAGE_PATH = "state/message_storage.jsonl"
+HELP_HISTORY_PATH = "state/help_history.txt"
+
 lang_to_system_message = {
     "en": SYSTEM_MESSAGE_EN,
     "ru": SYSTEM_MESSAGE_RU,
@@ -36,15 +39,15 @@ class NonCommandMessageFilter(filters.MessageFilter):
 
 
 async def save_message_to_storage(message: dict):
-    async with aiofiles.open("message_storage.jsonl", mode="a") as storage_file:
+    async with aiofiles.open(MESSAGE_STORAGE_PATH, mode="a") as storage_file:
         await storage_file.write(json.dumps(message, ensure_ascii=False) + "\n")
 
 # Initialize message storage
 # I want to keep this call close to handle_message definition
 message_storage = []
 
-if os.path.exists("message_storage.jsonl"):
-    with jsonlines.open("message_storage.jsonl", mode="r") as f:
+if os.path.exists(MESSAGE_STORAGE_PATH):
+    with jsonlines.open(MESSAGE_STORAGE_PATH, mode="r") as f:
         for message in f:
             message_storage.append(message)
 
@@ -155,7 +158,7 @@ async def help_command(update: Update, context: CallbackContext) -> None:
     summary = openai_chat.choices[0].message["content"]
 
     # save into file, append to file
-    with open("help.txt", mode="a") as f:
+    with open(HELP_HISTORY_PATH, mode="a") as f:
         f.write("<start>\n" + summary + "\n<end>\n")
 
     await update.message.reply_text(summary)
