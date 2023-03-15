@@ -60,6 +60,8 @@ async def handle_message(update: Update, context):
     print(f"Received message from {user}: {msg}")
     logger.info(f"Received message from {user}: {msg}")
 
+    print("chat ID: ", update.message.chat_id)
+
     message = {"timestamp": timestamp, "user": user, "user_id": user_id, "message": msg}
     message_storage.append(message)
     await save_message_to_storage(message)
@@ -179,13 +181,12 @@ if __name__ == "__main__":
     application = Application.builder().token(os.environ["TG_BOT_TOKEN"]).build()
 
     non_command_filter = NonCommandMessageFilter()
-    # allowed_chat_filter = filters.Chat(chat_id=ALLOWED_CHAT_ID)
+    allowed_chat_filter = filters.Chat(chat_id=ALLOWED_CHAT_ID)
 
-    # application.add_handler(MessageHandler(non_command_filter & allowed_chat_filter, handle_message))
-    application.add_handler(MessageHandler(non_command_filter, handle_message))
-    application.add_handler(CommandHandler("summarize", summarize))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("get_chat_id", get_chat_id))
-    application.add_handler(MessageHandler(filters.ALL, debug_handler))  # Move the debug_handler to the end
+    application.add_handler(MessageHandler(non_command_filter & allowed_chat_filter, handle_message))
+    application.add_handler(CommandHandler("summarize", summarize, filters=allowed_chat_filter))
+    application.add_handler(CommandHandler("help", help_command, filters=allowed_chat_filter))
+    application.add_handler(CommandHandler("get_chat_id", get_chat_id, filters=allowed_chat_filter))
+    application.add_handler(MessageHandler(filters.ALL, debug_handler))
 
     application.run_polling(1.0)
