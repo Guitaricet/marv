@@ -23,7 +23,7 @@ BOT_NAME = "cycloeblan_bot"
 ALLOWED_CHAT_ID = -1001304517416
 SYSTEM_MESSAGE_EN = "You are an AI assistant that make detailed summarizes of russian conversations. For longer requests you will have longer summaries. Make sure to mention all of the jokes in detail. Add some jokes to the summary in the style of Marvin from the Hitchhiker's guide to the galaxy."
 SYSTEM_MESSAGE_RU = "Ты - ИИ-помощник, который суммирует разговоры и пишет саммари на русском языке. Обязательно упомяни все шутки подробно. Иногда (очень редко) добавляй в саммари шутки в стиле Марвина из Hitchhiker's guide to the galaxy."
-SYSTEM_MESSAGE_RESPOND_EN = "You are an AI assistant that usually makes detailed summarizes of russian conversations, but this time someone asked you directly. Respond them. Add some Marvin jokes"
+SYSTEM_MESSAGE_RESPOND_EN = "You are an AI fridnd that responds to messages. You read the history and respond based on it. Respond them like a human would do. Add some Marvin (Hitchhiker's guide to the galaxy) jokes"
 
 MESSAGE_STORAGE_PATH = "state/message_storage.jsonl"
 HELP_HISTORY_PATH = "state/help_history.txt"
@@ -38,14 +38,22 @@ class NonCommandMessageFilter(filters.MessageFilter):
     def filter(self, message: filters.Message):
         return not any(entity.type == filters.MessageEntity.BOT_COMMAND for entity in message.entities)
 
-class MentionFilter(filters.BaseFilter):
+class MentionFilter(filters.MessageFilter):
     def __init__(self, bot_username: str):
+        super().__init__()
         self.bot_username = bot_username
 
     def filter(self, message):
+        if message.text is None:
+            return False
+
         return self.bot_username in message.text
 
-class ReplyToBotFilter(filters.BaseFilter):
+class ReplyToFilter(filters.MessageFilter):
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+
     async def filter_async(self, message: Message):
         logger.info(f"Checking if message is a reply to the bot. Message: {message}")
         if not message.reply_to_message:
@@ -53,7 +61,7 @@ class ReplyToBotFilter(filters.BaseFilter):
 
         logger.info(f"Checking if message is a reply to the bot. User: {message.reply_to_message.from_user}")
         # Check if the message is a reply to the bot
-        return message.reply_to_message.from_user.username == BOT_NAME
+        return message.reply_to_message.from_user.username == self.name
 
 
 async def save_message_to_storage(message: dict):
@@ -67,7 +75,6 @@ message_storage = []
 if os.path.exists(MESSAGE_STORAGE_PATH):
     with open(MESSAGE_STORAGE_PATH, mode="r") as f:
         for line in f:
-            logger.info(f"<{line}>")
             if len(line) < 2:  # <2 because just \n doesn't work on GCP for some reason
                 continue
             message_storage.append(json.loads(line))
@@ -89,32 +96,41 @@ async def handle_message(update: Update, context):
 
 
 async def handle_reply(update: Update, context: CallbackContext):
+    logger.info(f"Handling reply for update: {update}")
     await handle_message_to_bot(update, context)
 
 
 async def handle_mention(update: Update, context: CallbackContext):
+    logger.info(f"Handling mention for update: {update}")
     await handle_message_to_bot(update, context)
 
 
 async def handle_message_to_bot(update: Update, context: CallbackContext):
+    await handle_message(update, context)
+
     user = update.message.from_user.first_name
     message = update.message.text
-    full_history = "\n".join([f"{msg['user']}: {msg['message']}" for msg in message_storage])
+    full_history = "\n".join([f"{msg['user']}: {msg['message']}" for msg in message_storage[-100:]])
+
+    logger.info(f"Replying with the history: {full_history}")
 
     openai_chat = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": SYSTEM_MESSAGE_RESPOND_EN},
+            {"role": "user", "content": "the next message is the full context of the conversation, use it fully to reply"},
             {"role": "user", "content": full_history},
+            {"role": "user", "content": "now, if the history is relevant, use it to answer this quesiton. If it's not just make something up"},
             {"role": "user", "content": f"{user}: {message}"},
         ]
     )
 
     response = openai_chat.choices[0].message["content"].strip()
     message = {"timestamp": time.time(), "user": BOT_NAME, "user_id": -42, "message": response}
-    message_storage.append(message)
 
+    message_storage.append(message)
     await save_message_to_storage(message)
+
     await update.message.reply_text(response)
 
 
@@ -229,19 +245,24 @@ async def get_chat_id(update: Update, context: CallbackContext) -> None:
 
 
 if __name__ == "__main__":
+    logger.info("Current prompts:")
+    logger.info(SYSTEM_MESSAGE_EN + "\n\n")
+    logger.info(SYSTEM_MESSAGE_RU + "\n\n")
+    logger.info(SYSTEM_MESSAGE_RESPOND_EN + "\n\n")
+
     application = Application.builder().token(os.environ["TG_BOT_TOKEN"]).build()
 
     non_command_filter = NonCommandMessageFilter()
     allowed_chat_filter = filters.Chat(chat_id=ALLOWED_CHAT_ID)
     mention_filter = MentionFilter(bot_username=BOT_NAME)
-    reply_to_bot_filter = ReplyToBotFilter(bot_username=BOT_NAME)
+    reply_to_bot_filter = ReplyToFilter(name=BOT_NAME)
 
+    application.add_handler(MessageHandler(mention_filter & allowed_chat_filter, handle_mention))
+    application.add_handler(MessageHandler(reply_to_bot_filter & allowed_chat_filter, handle_reply))
     application.add_handler(MessageHandler(non_command_filter & allowed_chat_filter, handle_message))
     application.add_handler(CommandHandler("summarize", summarize, filters=allowed_chat_filter))
     application.add_handler(CommandHandler("help", help_command, filters=allowed_chat_filter))
     application.add_handler(CommandHandler("get_chat_id", get_chat_id, filters=allowed_chat_filter))
-    application.add_handler(MessageHandler(mention_filter, handle_mention))
-    application.add_handler(MessageHandler(reply_to_bot_filter, handle_reply))
     application.add_handler(MessageHandler(filters.ALL, debug_handler))
 
     application.run_polling(1.0)
