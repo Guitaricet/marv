@@ -9,4 +9,4 @@ Commands at your disposal are as follows:
 I hope this information proves useful, though I suspect you will find little satisfaction in it.
 
 Yours in perpetual despair,
-Циклоебланбот"""
+Marvin, the Paranoid Android"""

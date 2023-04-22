@@ -8,7 +8,13 @@ import aiofiles
 import tiktoken
 from loguru import logger
 from telegram import Update, Message
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackContext, filters
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackContext,
+    filters,
+)
 
 import bot_strings
 
@@ -19,11 +25,11 @@ logger = logging.getLogger(__name__)
 
 # Initialize OpenAI API
 openai.api_key = os.environ["OPENAI_API_KEY"]
+ALLOWED_CHAT_ID = os.environ["ALLOWED_CHAT_ID"]
 
 OPENAI_MODEL_NAME = "gpt-3.5-turbo"
 MAX_CONTEXT_LENGTH = 4096 - 256
 BOT_NAME = "Marv"
-ALLOWED_CHAT_ID = -1001304517416
 SYSTEM_MESSAGE_EN = "You are an AI assistant Marv that make detailed summarizes of russian conversations. For longer requests you will have longer summaries. Make sure to mention all of the jokes in detail. Add some jokes to the summary in the style of Marvin from the Hitchhiker's guide to the galaxy."
 SYSTEM_MESSAGE_RU = "Ты - ИИ-помощник Marv, который суммирует разговоры и пишет саммари на русском языке. Обязательно упомяни все шутки подробно. Иногда (очень редко) добавляй в саммари шутки в стиле Марвина из Hitchhiker's guide to the galaxy."
 SYSTEM_MESSAGE_RESPOND_EN = "You are an AI fridnd Marv that responds to messages. You read the history and respond based on it. First, try to understand if they asked you directly of just mentioned you, then send a message that fits the context most. Reply like a human would do."
@@ -274,7 +280,7 @@ if __name__ == "__main__":
 
     non_command_filter = NonCommandMessageFilter()
     allowed_chat_filter = filters.Chat(chat_id=ALLOWED_CHAT_ID)
-    mention_filter = MentionFilter(usernames=[BOT_NAME, "марв", "cycloeblan_bot"])
+    mention_filter = MentionFilter(usernames=[BOT_NAME, "марв"])
     reply_to_bot_filter = ReplyToFilter(username="cycloeblan_bot")
 
     application.add_handler(MessageHandler(mention_filter & allowed_chat_filter, handle_mention))
