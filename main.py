@@ -1,7 +1,7 @@
 import os
 import time
 import json
-import logging
+from datetime import datetime
 
 import openai
 import aiofiles
@@ -19,20 +19,15 @@ from telegram.ext import (
 import bot_strings
 
 
-# Set up logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Initialize OpenAI API
 openai.api_key = os.environ["OPENAI_API_KEY"]
 ALLOWED_CHAT_ID = os.environ["ALLOWED_CHAT_ID"]
 
 OPENAI_MODEL_NAME = "gpt-3.5-turbo"
-MAX_CONTEXT_LENGTH = 4096 - 256
+MAX_CONTEXT_LENGTH = 4096 - 512
 BOT_NAME = "Marv"
-SYSTEM_MESSAGE_EN = "You are an AI assistant Marv that make detailed summarizes of russian conversations. For longer requests you will have longer summaries. Make sure to mention all of the jokes in detail. Add some jokes to the summary in the style of Marvin from the Hitchhiker's guide to the galaxy."
+SYSTEM_MESSAGE_EN = "You are an AI assistant Marv that makes detailed summarizes of russian conversations. For longer requests you will have longer summaries. Make sure to mention all of the jokes in detail. Add some jokes to the summary in the style of Marvin from the Hitchhiker's guide to the galaxy. Reply in English."
 SYSTEM_MESSAGE_RU = "Ты - ИИ-помощник Marv, который суммирует разговоры и пишет саммари на русском языке. Обязательно упомяни все шутки подробно. Иногда (очень редко) добавляй в саммари шутки в стиле Марвина из Hitchhiker's guide to the galaxy."
-SYSTEM_MESSAGE_RESPOND_EN = "You are an AI fridnd Marv that responds to messages. You read the history and respond based on it. First, try to understand if they asked you directly of just mentioned you, then send a message that fits the context most. Reply like a human would do."
+SYSTEM_MESSAGE_RESPOND_EN = "You are an AI fridnd Marv that responds to messages. You read the history and respond based on it. First, try to understand if they asked you directly of just mentioned you, then send a message that fits the context most. Reply in English unless you are asked to reply in Russian."
 
 MESSAGE_STORAGE_PATH = "state/message_storage.jsonl"
 HELP_HISTORY_PATH = "state/help_history.txt"
@@ -68,6 +63,9 @@ class MentionFilter(filters.MessageFilter):
         if message.text is None:
             return False
 
+        if "марва" in message.text:  # родительный падеж
+            return False
+
         return any(n.lower() in message.text.lower() for n in self.usernames)
 
 
@@ -77,11 +75,9 @@ class ReplyToFilter(filters.MessageFilter):
         self.username = username
 
     def filter(self, message: Message):
-        logger.info(f"Checking if message is a reply to the bot. Message: {message}")
         if not message.reply_to_message:
             return False
 
-        logger.info(f"Checking if message is a reply to the bot. User: {message.reply_to_message.from_user}")
         # Check if the message is a reply to the bot
         return message.reply_to_message.from_user.username == self.username
 
@@ -102,6 +98,9 @@ if os.path.exists(MESSAGE_STORAGE_PATH):
             message_storage.append(json.loads(line))
 
 async def handle_message(update: Update, context):
+    if update.message is None:
+        return
+
     msg = update.message.text
     timestamp = update.message.date.timestamp()
     user = update.message.from_user.first_name
@@ -133,17 +132,27 @@ async def handle_message_to_bot(update: Update, context: CallbackContext):
     user = update.message.from_user.first_name
     message = update.message.text
     full_history = "\n".join([f"{msg['user']}: {msg['message']}" for msg in message_storage[-100:]])
-    full_history = truncate(full_history, MAX_CONTEXT_LENGTH)
 
-    logger.info(f"Replying with the history: {full_history}")
+    is_marv4 = any(word in message.lower() for word in ["marv4", "marv 4", "marv-4", "марв4", "марв 4", "марв-4", "ультрамарв"])
+    model = OPENAI_MODEL_NAME
+    max_context_length = MAX_CONTEXT_LENGTH
+    if is_marv4:
+        model = "gpt-4"
+        max_context_length = 512
+        logger.warning(f"Using GPT-4 model for this message. Total number of tokens fed: {len(tokenizer.encode(full_history))}")
 
+    full_history = truncate(full_history, max_context_length)
+
+    logger.info(f"Replying to the question by {user}: {message}")
+
+    today = f"\nToday is {datetime.now().strftime('%A, %d %B %Y')}."
     openai_chat = openai.ChatCompletion.create(
-        model=OPENAI_MODEL_NAME,
+        model=model,
         messages=[
-            {"role": "system", "content": SYSTEM_MESSAGE_RESPOND_EN},
-            {"role": "user", "content": "the next message is the full context of the conversation, use it fully to reply"},
+            {"role": "system", "content": SYSTEM_MESSAGE_RESPOND_EN + today},
+            {"role": "user", "content": "The next message is the full context of the conversation, use it fully to reply."},
             {"role": "user", "content": full_history},
-            {"role": "user", "content": "now, if the history is relevant, use it to answer this quesiton. If it's not just make something up. Feel free to joke and banter like Marvin from Hitchhiker's guide to the galaxy"},
+            {"role": "user", "content": "Now, if the history is relevant, use it to answer this quesiton. If it's not just make something up. Feel free to joke and banter like Marvin from Hitchhiker's guide to the galaxy. Do not start it with 'Marv:', we all know who you are."},
             {"role": "user", "content": f"{user}: {message}"},
         ]
     )
@@ -202,7 +211,7 @@ def summarize_messages(messages, lang="en"):
     ]
 
     openai_chat = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
+        model=OPENAI_MODEL_NAME,
         messages=messages,
     )
 
@@ -243,7 +252,7 @@ async def summarize(update: Update, context: CallbackContext) -> None:
 async def help_command(update: Update, context: CallbackContext) -> None:
     logger.info(f"Received /help command from {update.message.from_user.first_name}.")
     openai_chat = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
+        model=OPENAI_MODEL_NAME,
         messages=[
             {"role": "system", "content": "Repharse this text with minimal changes, keep the style and ((format)) it nicely."},
             {"role": "user", "content": bot_strings.HELP_MESSAGE},
