@@ -254,7 +254,7 @@ async def help_command(update: Update, context: CallbackContext) -> None:
     openai_chat = openai.ChatCompletion.create(
         model=OPENAI_MODEL_NAME,
         messages=[
-            {"role": "system", "content": "Repharse this text with minimal changes, keep the style and ((format)) it nicely."},
+            {"role": "system", "content": "Rephrase this text with minimal changes, keep the style and ((format)) it nicely."},
             {"role": "user", "content": bot_strings.HELP_MESSAGE},
         ]
     )
