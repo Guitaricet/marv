@@ -50,7 +50,13 @@ def truncate(text, max_tokens):
 
 class NonCommandMessageFilter(filters.MessageFilter):
     def filter(self, message: filters.Message):
-        return not any(entity.type == filters.MessageEntity.BOT_COMMAND for entity in message.entities)
+        if not message.entities:
+            return True
+
+        return not any(
+            entity.type == filters.MessageEntity.BOT_COMMAND
+            for entity in message.entities
+        )
 
 class MentionFilter(filters.MessageFilter):
     def __init__(self, usernames: str):
