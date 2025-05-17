@@ -8,8 +8,14 @@ os.environ.setdefault("ALLOWED_CHAT_ID", "1")
 
 # Provide minimal stubs for external packages used by main
 openai_stub = types.ModuleType("openai")
-openai_stub.ChatCompletion = types.SimpleNamespace()
-openai_stub.api_key = ""
+
+class FakeOpenAI:
+    def __init__(self, *args, **kwargs):
+        self.chat = types.SimpleNamespace(
+            completions=types.SimpleNamespace(create=lambda *a, **k: None)
+        )
+
+openai_stub.OpenAI = FakeOpenAI
 sys.modules.setdefault("openai", openai_stub)
 
 tiktoken_stub = types.ModuleType("tiktoken")

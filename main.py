@@ -20,8 +20,9 @@ from telegram.ext import (
 import bot_strings
 
 
-openai.api_key = os.environ["OPENAI_API_KEY"]
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 ALLOWED_CHAT_ID = os.environ["ALLOWED_CHAT_ID"]
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 OPENAI_MODEL_NAME = "gpt-3.5-turbo"
 MAX_CONTEXT_LENGTH = 4096 - 512
@@ -160,7 +161,7 @@ async def handle_message_to_bot(update: Update, context: CallbackContext):
     logger.info(f"Replying to the question by {user}: {message}")
 
     today = f"\nToday is {datetime.now().strftime('%A, %d %B %Y')}."
-    openai_chat = openai.ChatCompletion.create(
+    openai_chat = client.chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": SYSTEM_MESSAGE_RESPOND_EN + today},
@@ -224,7 +225,7 @@ def summarize_messages(messages, lang="en"):
         {"role": "user", "content": conversation},
     ]
 
-    openai_chat = openai.ChatCompletion.create(
+    openai_chat = client.chat.completions.create(
         model=OPENAI_MODEL_NAME,
         messages=messages,
     )
@@ -265,7 +266,7 @@ async def summarize(update: Update, context: CallbackContext) -> None:
 
 async def help_command(update: Update, context: CallbackContext) -> None:
     logger.info(f"Received /help command from {update.message.from_user.first_name}.")
-    openai_chat = openai.ChatCompletion.create(
+    openai_chat = client.chat.completions.create(
         model=OPENAI_MODEL_NAME,
         messages=[
             {"role": "system", "content": "Rephrase this text with minimal changes, keep the style and ((format)) it nicely."},

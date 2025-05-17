@@ -14,8 +14,14 @@ os.environ.setdefault("ALLOWED_CHAT_ID", "1")
 
 # Stub out external dependencies so that main can be imported
 openai_stub = types.ModuleType("openai")
-openai_stub.ChatCompletion = types.SimpleNamespace(create=lambda *a, **k: None)
-openai_stub.api_key = ""
+
+class FakeOpenAI:
+    def __init__(self, *args, **kwargs):
+        self.chat = types.SimpleNamespace(
+            completions=types.SimpleNamespace(create=lambda *a, **k: None)
+        )
+
+openai_stub.OpenAI = FakeOpenAI
 sys.modules.setdefault("openai", openai_stub)
 
 tiktoken_stub = types.ModuleType("tiktoken")
@@ -116,11 +122,11 @@ class TestHandleMessageToBot(unittest.IsolatedAsyncioTestCase):
 
         original_handle = main.handle_message
         original_save = main.save_message_to_storage
-        original_create = main.openai.ChatCompletion.create
+        original_create = main.client.chat.completions.create
 
         main.handle_message = fake_handle_message
         main.save_message_to_storage = fake_save
-        main.openai.ChatCompletion.create = fake_create
+        main.client.chat.completions.create = fake_create
 
         try:
             update = FakeUpdate("hello")
@@ -130,7 +136,7 @@ class TestHandleMessageToBot(unittest.IsolatedAsyncioTestCase):
         finally:
             main.handle_message = original_handle
             main.save_message_to_storage = original_save
-            main.openai.ChatCompletion.create = original_create
+            main.client.chat.completions.create = original_create
 
 
 if __name__ == "__main__":
