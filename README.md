@@ -13,7 +13,7 @@ Minimalistic easy-to-read implementation with minimal dependencies.
 * Context and chat history aware
 * `/summarize hours` - Summarize conversation for the last `hours` hours.
 * Responds to mentions and replies
-* Automatically switches betwen English and Russian
+* Automatically switches between English and Russian
 * Optional GPT4 "ultra" mode
 
 ## Setup
