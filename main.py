@@ -1,6 +1,7 @@
 import os
 import time
 import json
+import re
 from datetime import datetime
 
 import openai
@@ -38,6 +39,13 @@ lang_to_system_message = {
 }
 
 tokenizer = tiktoken.encoding_for_model(OPENAI_MODEL_NAME)
+
+MARV_PREFIX_RE = re.compile(r"(?i)^marv:\s*")
+
+
+def strip_marv_prefix(text: str) -> str:
+    """Remove leading 'Marv:' prefix from the given text."""
+    return MARV_PREFIX_RE.sub("", text, count=1)
 
 def truncate(text, max_tokens):
     encoded_text = tokenizer.encode(text)
@@ -158,8 +166,8 @@ async def handle_message_to_bot(update: Update, context: CallbackContext):
     )
 
     response = openai_chat.choices[0].message["content"].strip()
-    response.strip("Marv: ")
-    response.strip("marv: ")
+
+    response = strip_marv_prefix(response)
     message = {"timestamp": time.time(), "user": BOT_NAME, "user_id": -42, "message": response}
 
     message_storage.append(message)
